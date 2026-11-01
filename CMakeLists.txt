@@ -1,7 +1,49 @@
 cmake_minimum_required(VERSION 3.16)
-project(primme VERSION 3.2 LANGUAGES C)
+project(primme LANGUAGES C)
+
+# Prefer the checked-out release tag. Fall back to the closest tag for a
+# development checkout, then to the version recorded by the upstream source.
+execute_process(
+  COMMAND git describe --tags --exact-match HEAD
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  RESULT_VARIABLE PRIMME_EXACT_TAG_RESULT
+  OUTPUT_VARIABLE PRIMME_VERSION
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET)
+if(NOT PRIMME_EXACT_TAG_RESULT EQUAL 0)
+  execute_process(
+    COMMAND git describe --tags --abbrev=0
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    RESULT_VARIABLE PRIMME_TAG_RESULT
+    OUTPUT_VARIABLE PRIMME_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(NOT PRIMME_TAG_RESULT EQUAL 0)
+    set(PRIMME_VERSION "3.2")
+  endif()
+endif()
+message(STATUS "PRIMME version: ${PRIMME_VERSION}")
+string(REGEX MATCH "^[0-9]+" PRIMME_SOVERSION "${PRIMME_VERSION}")
 
 include(GNUInstallDirs)
+
+string(TOLOWER "${CMAKE_C_COMPILER_ID}" PRIMME_PLATFORM)
+set(PROJECT_NAME primme)
+set(VERSION ${PRIMME_VERSION})
+set(FC_PLAT ${PRIMME_PLATFORM})
+set(PREFIX ${CMAKE_INSTALL_PREFIX})
+set(LIB_ETC ${CMAKE_CURRENT_SOURCE_DIR}/etc)
+set(LIB_ENV ${LIB_ETC}/environment_modules)
+set(LIB_TMP_ETC ${CMAKE_CURRENT_BINARY_DIR}/etc)
+set(LIB_TARGET_ETC ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_SYSCONFDIR})
+set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules)
+include(${CMAKE_MODULE_PATH}/ColorsMsg.cmake)
+include(${CMAKE_MODULE_PATH}/PostBuildLibrary.cmake)
+
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/opt/primme/${PRIMME_VERSION}" CACHE PATH
+      "PRIMME installation prefix" FORCE)
+endif()
 
 option(PRIMME_WITH_FLOAT "Build single precision routines" ON)
 option(PRIMME_BUILD_SHARED "Build shared library in addition to static library" ON)
@@ -53,7 +95,7 @@ target_link_libraries(primme_static PUBLIC LAPACK::LAPACK BLAS::BLAS m)
 
 if(PRIMME_BUILD_SHARED)
   add_library(primme_shared SHARED ${PRIMME_SOURCES})
-  set_target_properties(primme_shared PROPERTIES OUTPUT_NAME primme VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR} POSITION_INDEPENDENT_CODE ON INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
+  set_target_properties(primme_shared PROPERTIES OUTPUT_NAME primme VERSION ${PRIMME_VERSION} SOVERSION ${PRIMME_SOVERSION} POSITION_INDEPENDENT_CODE ON INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
   target_include_directories(primme_shared
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
@@ -77,12 +119,30 @@ if(PRIMME_BUILD_SHARED)
   install(TARGETS primme_shared LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
-set(PRIMME_PKGCONFIG_LIBS "-lprimme -llapack -lblas -lm")
-configure_file(etc/primme.pc.in ${CMAKE_CURRENT_BINARY_DIR}/primme.pc @ONLY)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/primme.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+# Generate the versioned environment module and pkg-config file with the
+# same helpers used by the other standalone libraries in Libs.
+file(MAKE_DIRECTORY ${LIB_TMP_ETC}/modules/${PROJECT_NAME}/${FC_PLAT})
+set(TMP_ENV_MODULE_FILE ${LIB_TMP_ETC}/modules/${PROJECT_NAME}/${FC_PLAT}/${VERSION})
+BUILD_ENV_MODULE(${TMP_ENV_MODULE_FILE})
+set(TMP_PKCONFIG_FILE ${LIB_TMP_ETC}/${PROJECT_NAME}.pc)
+BUILD_PKCONFIG(${TMP_PKCONFIG_FILE})
+install(DIRECTORY ${LIB_TMP_ETC}/ DESTINATION ${CMAKE_INSTALL_SYSCONFDIR})
 
-string(TOLOWER "${CMAKE_C_COMPILER_ID}" PRIMME_PLATFORM)
-set(PRIMME_MODULE_DIR "${CMAKE_INSTALL_LIBDIR}/modules/primme/${PRIMME_PLATFORM}")
-configure_file(etc/environment_modules/primme.in ${CMAKE_CURRENT_BINARY_DIR}/primme.module @ONLY)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/primme.module DESTINATION ${PRIMME_MODULE_DIR} RENAME ${PROJECT_VERSION})
+# Register the same user-local module and pkg-config files during `make install`,
+# as done by the nssDMRG installer.
+install(DIRECTORY ${LIB_TMP_ETC}/modules/ DESTINATION "$ENV{HOME}/.modules.d")
+install(FILES ${TMP_PKCONFIG_FILE} DESTINATION "$ENV{HOME}/.pkgconfig.d")
 
+add_custom_target(distclean
+  COMMAND "${CMAKE_COMMAND}" -P ${CMAKE_SOURCE_DIR}/distclean.cmake
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+  COMMENT "Removing PRIMME build artifacts")
+
+add_custom_target(uninstall
+  COMMAND "${CMAKE_COMMAND}"
+          -DPRIMME_INSTALL_MANIFEST=${CMAKE_BINARY_DIR}/install_manifest.txt
+          -DPRIMME_VERSION=${PRIMME_VERSION}
+          -DPRIMME_PLATFORM=${PRIMME_PLATFORM}
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Uninstall.cmake
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+  COMMENT "Uninstalling PRIMME")

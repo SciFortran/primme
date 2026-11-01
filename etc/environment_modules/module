@@ -1,0 +1,11 @@
+proc ModulesHelp { } {
+    puts stderr "PRIMME: PReconditioned Iterative MultiMethod Eigensolver"
+    puts stderr "Version $version ($plat), compiled with $compiler"
+}
+module-whatis "PRIMME eigensolver library"
+
+setenv PRIMME_ROOT $root
+prepend-path LD_LIBRARY_PATH "$root/lib"
+prepend-path LIBRARY_PATH "$root/lib"
+prepend-path INCLUDE_PATH "$root/include"
+prepend-path PKG_CONFIG_PATH "$root/etc"
