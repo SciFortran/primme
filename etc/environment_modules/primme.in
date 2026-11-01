@@ -1,0 +1,14 @@
+#%Module
+proc ModulesHelp { } {
+    puts stderr "PRIMME @PROJECT_VERSION@: PReconditioned Iterative MultiMethod Eigensolver"
+}
+module-whatis "PRIMME @PROJECT_VERSION@"
+
+set root "@CMAKE_INSTALL_PREFIX@"
+set version "@PROJECT_VERSION@"
+set platform "@PRIMME_PLATFORM@"
+setenv PRIMME_ROOT $root
+prepend-path LD_LIBRARY_PATH "$root/@CMAKE_INSTALL_LIBDIR@"
+prepend-path LIBRARY_PATH "$root/@CMAKE_INSTALL_LIBDIR@"
+prepend-path INCLUDE_PATH "$root/@CMAKE_INSTALL_INCLUDEDIR@"
+prepend-path PKG_CONFIG_PATH "$root/@CMAKE_INSTALL_LIBDIR@/pkgconfig"
